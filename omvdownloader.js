@@ -119,7 +119,7 @@ async function download(projectId) {
 
     const downloadLog = await fs.open(`${projectId}/inhoud.txt`, 'w');
     await downloadLog.write(`# ${projectId}: ${header.projectnaam}\n`)
-    await downloadLog.write(`## automatisch gegenereerd met download_all.js voor OMV_${projectId} op ${new Date()}\n\n## Bestanden:\n`)
+    await downloadLog.write(`## automatisch gegenereerd met https://github.com/steven-aerts/omvdownloader ${projectId} op ${new Date()}\n\n## Bestanden:\n`)
     await downloadLog.write(bestanden.sort().join('\n'));
 }
 
