@@ -10,11 +10,15 @@ const APIROOT="https://omgevingsloketinzage.omgeving.vlaanderen.be/proxy-omv-up/
 
 async function request(pad, options = {}) {
     const url = APIROOT + pad
-    const response = await fetch(url, options);
-    if (!response.ok) {
-        throw `request error for ${url} ${response.status}: ${await response.text()}`
+    try {
+        const response = await fetch(url, options);
+        if (!response.ok) {
+            throw `request error ${response.status}: ${await response.text()}`
+        }
+        return await response.json()
+    } catch(e) {
+        throw new Error(`Fetch failed for ${url}`, {cause: e})
     }
-    return await response.json()
 }
 
 async function md5Match(pad, sum) {
@@ -44,7 +48,7 @@ async function downloadBestand(werkPad, f) {
             Readable.fromWeb(response.body).pipe(createWriteStream(pad, {flags: 'w'}))
         )
     }
-    bestanden.push(`${pad} (${f.datumOpladen.join('/')}): ${f.omschrijving}`);
+    bestanden.push(`${pad} (${f.datumOpladen.join('/')}): ${f.omschrijving || ""}`);
 }
 
 async function downloadStukken(werkPad, onderdeel) {
@@ -87,12 +91,12 @@ async function downloadVoorwerp(werkPad, voorwerp) {
         await Promise.all(bestanden.content.map(s => downloadBestand(stukPad, s)));
     }
 }
-async function downloadAdvies(werkPad, advies) {
-    const pad = werkPad.concat("adviezen", advies.gevraagdAan)
-    const inhoud = await request(`inzage/gebeurtenissen/${advies.adviesVraagGebeurtenisUuid}`)
+async function downloadGebeurtenis(werkPad, gebeurtenis) {
+    const pad = werkPad.concat(gebeurtenis.gevraagdAan || gebeurtenis.verantwoordelijke)
+    const inhoud = await request(`inzage/gebeurtenissen/${gebeurtenis.uuid || gebeurtenis.adviesVraagGebeurtenisUuid}`)
     for (const onderdeel of inhoud) {
         for(const bestand of onderdeel.bestanden) {
-            await downloadBestand(pad, bestand)
+            await downloadBestand(pad.concat(onderdeel.titel), bestand)
         }
     }
 }
@@ -100,11 +104,19 @@ async function downloadAdvies(werkPad, advies) {
 async function downloadProcedure(werkPad, uuid) {
     const procedure = await request(`inzage/projecten/${uuid}/procedure`);
     for (const stap of procedure) {
+        const pad = werkPad.concat(stap.inhoud.aard.code)
         const adviezen = await request(`inzage/projectfasen/${stap.uuid}/advies-gebeurtenissen?size=1000`)
-        for(const advies of adviezen.content) {
-            await downloadAdvies(werkPad, advies)
+        for(const gebeurtenis of adviezen.content) {
+            await downloadGebeurtenis(pad.concat("adviezen"), gebeurtenis)
+        }
+        const beslissingen = await request(`inzage/projectfasen/${stap.uuid}/beslissing-gebeurtenissen?size=1000`)
+        for(const gebeurtenis of beslissingen.content) {
+            await downloadGebeurtenis(pad.concat("beslissing"), gebeurtenis)
         }
         const gebeurtenissen = await request(`inzage/projectfasen/${stap.uuid}/andere-gebeurtenissen?size=1000`)
+        for(const gebeurtenis of gebeurtenissen.content) {
+            await downloadGebeurtenis(pad.concat("gebeurtenissen"), gebeurtenis)
+        }
     }
 }
 
@@ -115,7 +127,7 @@ async function download(projectId) {
     const projectInfo = await request(`inzage/projecten/${header.uuid}/projectinformatie`);
     const topVoorwerpen = await request(`inzage/projecten/${header.uuid}/top-voorwerpen?size=1000`);
     await Promise.all(topVoorwerpen.content.map(v => downloadVoorwerp(pad, v)));
-    await(downloadProcedure(pad, header.uuid))
+    await downloadProcedure(pad, header.uuid)
 
     const downloadLog = await fs.open(`${projectId}/inhoud.txt`, 'w');
     await downloadLog.write(`# ${projectId}: ${header.projectnaam}\n`)
