@@ -60,7 +60,7 @@ async function startDownloadBestand(werkPad, f) {
 async function downloadStukken(el, werkPad, onderdeel, level = 0) {
     await el("section", {class:"onderdeel"}, async () => {
         const titel = (onderdeel.titel && (onderdeel.titel.code || onderdeel.titel)) || onderdeel.aard.code
-        await el(`h${level + 4}`, {id: onderdeel.uuid}, );
+        await el(`h${level + 4}`, {id: onderdeel.uuid}, titel);
         if (onderdeel.inhoud) {
             await el("pre", onderdeel.inhoud)
         }
@@ -239,7 +239,7 @@ async function downloadProcedure(el, werkPad, uuid) {
 async function htmlDoc(pad, naam) {
     const doc = await fs.open(pad.concat(naam).join('/'), 'w');
     var depth = 0;
-    doc.write("<!doctype html>\n")
+    await doc.write("<!doctype html>\n")
     const el = async function(elName, attrs, content) {
         if (content === undefined && (typeof attrs !== 'object')) {
             content = attrs
@@ -251,19 +251,19 @@ async function htmlDoc(pad, naam) {
         const attrString = Object.entries(attrs || {}).map(([key, value]) => ` ${key}="${value}"`).join("")
         const padding = "\t".repeat(depth)
         if (!elName) {
-            doc.write(String(content))
+            await doc.write(String(content))
         } 
-        doc.write(`${padding}<${elName}${attrString}>`)
+        await doc.write(`${padding}<${elName}${attrString}>`)
         if (typeof content !== 'function') {
-            doc.write(String(content))
+            await doc.write(String(content))
         } else {
-            doc.write("\n")
+            await doc.write("\n")
             depth = depth + 1
             await content()
-            doc.write(padding)
+            await doc.write(padding)
             depth = depth - 1
         }
-        doc.write(`</${elName}>\n`)
+        await doc.write(`</${elName}>\n`)
     }
     el.dl = async function(content) {
         await el("dl", async () => {
