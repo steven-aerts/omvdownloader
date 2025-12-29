@@ -359,7 +359,7 @@ async function download(projectId) {
                 }
             })
             await downloadProcedure(el, pad, header.uuid)
-            const footer = `dit document is gegenereerd met <a href="https://github.com/steven-aerts/omvdownloader>omvdownloader</a> ${projectId} op ${new Date()}`
+            const footer = `dit document is gegenereerd met <a href="https://github.com/steven-aerts/omvdownloader">omvdownloader</a> ${projectId} op ${new Date()}`
             await el("footer", async () => {
                 await el("p", footer)
             })
