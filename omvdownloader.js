@@ -150,7 +150,7 @@ async function downloadVoorwerp(el, werkPad, voorwerp) {
                         BestandsNaam: async () => el("a", {href: pf.href, id: pf.uuid}, pf.bestandsnaam),
                         TekeningSoort: pf.tekeningsoort.code,
                         PlanAanduiding: pf.planAanduiding,
-                        Toestand: pf.toestand.code,
+                        Toestand: pf.toestand?.code,
                         Datum: pf.datumOpladen.join("-"),
                         Grootte: pf.grootte,
                     }
@@ -237,6 +237,7 @@ async function downloadProcedure(el, werkPad, uuid) {
 
 
 async function htmlDoc(pad, naam) {
+    await fs.mkdir(pad.join('/'), {recursive: true})
     const doc = await fs.open(pad.concat(naam).join('/'), 'w');
     var depth = 0;
     await doc.write("<!doctype html>\n")
@@ -349,10 +350,6 @@ async function download(projectId) {
                     gegenereerd: new Date().toISOString()
                 })
             })
-            const projectInfo = await request(`inzage/projecten/${header.uuid}/projectinformatie`);
-            if (projectInfo.subOnderdelen.length > 0) {
-                console.warn("TODO: projectInfo Not Empty")
-            }
 
             await el("section", {class: "inhoud"}, async () => {
                 await el("h1", "Inhoud Aanvraag")                
@@ -362,7 +359,7 @@ async function download(projectId) {
                 }
             })
             await downloadProcedure(el, pad, header.uuid)
-            const footer = `automatisch gegenereerd met https://github.com/steven-aerts/omvdownloader ${projectId} op ${new Date()}`
+            const footer = `dit document is gegenereerd met <a href="https://github.com/steven-aerts/omvdownloader>omvdownloader</a> ${projectId} op ${new Date()}`
             await el("footer", async () => {
                 await el("p", footer)
             })
