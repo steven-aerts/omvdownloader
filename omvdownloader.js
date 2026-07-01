@@ -6,20 +6,111 @@ const { Writable } = require('node:stream');
 const { argv } = require('node:process');
 const { createHash } = require('node:crypto');
 const { dirname } = require('node:path');
+const os = require('node:os');
+const { Worker } = require('node:worker_threads');
+const { URLSearchParams } = require('node:url');
 
 const bestanden = [];
 const APIROOT="https://omgevingsloketinzage.omgeving.vlaanderen.be/proxy-omv-up/rs/v1/"
+const cookieJar= {}
 
 async function request(pad, options = {}) {
     const url = APIROOT + pad
     try {
-        const response = await fetch(url, options);
+        var response = await fetchWithCookies(url, options);
         if (!response.ok) {
             throw `request error ${response.status}: ${await response.text()}`
+        }
+        if (response.headers.get("content-type").indexOf("text/html") >= 0 ) {
+            await resolveAnubis(response, url, options);
+            return await request(pad, options);
         }
         return await response.json()
     } catch(e) {
         throw new Error(`Fetch failed for ${url}`, {cause: e})
+    }
+}
+
+async function fetchWithCookies(url, options) {
+    const cookieHeader = Object.entries(cookieJar).map(e => e.join('=')).join(";");
+    options = Object.assign({}, options);
+    const headers = new Headers(options.headers || {});
+    if (cookieHeader.length > 0) {
+        headers.append('Cookie', cookieHeader);
+    }
+    options.headers = headers;
+    var response = await fetch(url, options);
+    var setCookies = response.headers.getSetCookie() || [];
+    for (const setCookie of setCookies) {
+        const [cookieKey, cookieValue] = setCookie.split(";", 2)[0].split('=', 2);
+        if (cookieValue.length > 0) {
+            cookieJar[cookieKey] = cookieValue;
+        } else {
+            delete cookieJar[cookieKey];
+        }
+    }
+    return response
+}
+
+async function resolveAnubis(response, url, options) {
+    const t0 = new Date();
+    const body = await response.text();
+    const { challenge, rules } = JSON.parse(body.match('<script id="anubis_challenge" type="application/json">([^<]+)<')[1]);
+    if (rules.algorithm !== 'fast') {
+        throw `anubis: unexpected algorithm "${rules.algorithm}"`
+    }
+
+    const pow = new Promise((resolve, reject) => {
+        const workers = [];
+        let settled = false;
+
+        const cleanup = () => {
+            if (settled) {
+                return;
+            }
+            settled = true;
+            workers.forEach((w) => w.terminate());
+        };
+
+        const threads = os.cpus().length;
+        for (let i = 0; i < threads; i++) {
+            let worker = new Worker("./sha256-webcrypto.js");
+
+            worker.once('message', (event) => {
+                resolve(event);
+            });
+
+            worker.once('error', (event) => {
+                cleanup();
+                reject(event);
+            });
+
+            worker.postMessage({
+                data: challenge.randomData,
+                difficulty: rules.difficulty,
+                nonce: i,
+                threads,
+            });
+
+            workers.push(worker);
+        }
+    });
+
+    const result = await pow;
+    const searchParams = new URLSearchParams({
+        id: challenge.id,
+        response: result.hash,
+        nonce: result.nonce,
+        redir: url,
+        elapsedTime: new Date() - t0
+    });
+    const anubisUrl = `${new URL(`/.within.website/x/cmd/anubis/api/pass-challenge?${searchParams}`, new URL(APIROOT))}`;
+
+    options = Object.assign({ redirect: 'manual' }, options);
+    await fetchWithCookies(anubisUrl, options);
+
+    if (!cookieJar.hasOwnProperty("techaro.lol-anubis-auth")) {
+        throw new Error("Unable to pass anubis")
     }
 }
 
@@ -41,7 +132,7 @@ async function downloadBestand(pad, f) {
         console.debug(`download ${pad}`)
         await fs.mkdir(dirname(pad), {recursive: true})
         const url = `${APIROOT}inzage/bestanden/${f.uuid}/download`
-        const response = await fetch(url);
+        const response = await fetchWithCookies(url);
         if (!response.ok) {
             throw `request error for ${url} ${response.status}: ${await response.text()}`
         }
@@ -359,7 +450,7 @@ async function download(projectId) {
                 }
             })
             await downloadProcedure(el, pad, header.uuid)
-            const footer = `dit document is gegenereerd met <a href="https://github.com/steven-aerts/omvdownloader">omvdownloader</a> ${projectId} op ${new Date()}`
+            const footer = `dit document is gegenereerd met <a href="https://github.com/steven-aerts/omvdownloader">omvdownloader</a> voor ${projectId} op ${new Date()}`
             await el("footer", async () => {
                 await el("p", footer)
             })
